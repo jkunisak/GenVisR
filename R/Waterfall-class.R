@@ -58,7 +58,9 @@ setClass("Waterfall",
 #' all samples in "input" not specified with this parameter are removed.
 #' @param coverage Integer specifying the size in base pairs of the genome
 #' covered by sequence data from which mutations could be called. Required for
-#' the mutation burden sub-plot (see details and vignette).
+#' the mutation burden sub-plot (see details and vignette). Optionally a named 
+#' vector of integers corresponding to each sample can be supplied for more accurate
+#' calculations.
 #' @param mutation Character vector specifying mutations to keep, if defined
 #' mutations not supplied are removed from the main plot.
 #' @param mutationHierarchy Data.table object with rows specifying the order of
@@ -90,8 +92,8 @@ setClass("Waterfall",
 #' @param plotBLayers list of ggplot2 layers to be passed to the plot.
 #' @param gridOverlay Boolean specifying if a grid should be overlayed on the
 #' waterfall plot.
-#' @param drop Boolean specifying if unused mutations should be dropped from the
-#' legend.
+#' @param drop Boolean specifying if mutations not in the main plot should be dropped from the
+#' legend. If FALSE the legend will be based on mutations in the data before any subsets occur.
 #' @param labelSize Integer specifying the size of label text
 #' @param labelAngle Numeric value specifying the angle of label text
 #' @param sampleNames Boolean specifying if samples should be labeled on the plot.
@@ -113,7 +115,7 @@ Waterfall <- function(input, labelColumn=NULL, samples=NULL, coverage=NULL,
                       gridOverlay=FALSE, drop=TRUE, labelSize=5, labelAngle=0,
                       sampleNames=TRUE, clinical=NULL, sectionHeights=NULL,
                       sectionWidths=NULL, verbose=FALSE, plotCLayers=NULL){
-    
+
     # calculate all data for plots
     data <- WaterfallData(input, labelColumn=labelColumn, mutationHierarchy=mutationHierarchy,
                           samples=samples, coverage=coverage, mutation=mutation, genes=genes,
@@ -190,7 +192,6 @@ WaterfallData <- function(object, labelColumn, samples, mutationHierarchy,
     
     # assign the mapping of mutations and colors
     mutationHierarchy <- setMutationHierarchy(object, mutationHierarchy, verbose)
-    
     # convert to initial data to waterfall format
     primaryData <- toWaterfall(object, mutationHierarchy, labelColumn, verbose)
     
@@ -310,7 +311,7 @@ WaterfallPlots <- function(object, clinical, plotA, plotATally, plotALayers,
 #'
 #' @rdname getData-methods
 #' @aliases getData
-.getData <- function(object, name=NULL, index=NULL, ...){
+.getData_waterfall <- function(object, name=NULL, index=NULL, ...){
     
     if(is.null(name) & is.null(index)){
         memo <- paste("Both name and index are NULL, one must be specified!")
@@ -355,13 +356,13 @@ WaterfallPlots <- function(object, clinical, plotA, plotATally, plotALayers,
 #' @aliases getData
 setMethod(f="getData",
           signature="WaterfallData",
-          definition=.getData)
+          definition=.getData_waterfall)
 
 #' @rdname getData-methods
 #' @aliases getData
 setMethod(f="getData",
           signature="Waterfall",
-          definition=.getData)
+          definition=.getData_waterfall)
 
 #' Helper function to extract grobs from objects
 #'
@@ -377,6 +378,8 @@ setMethod(f="getData",
         grob <- object@PlotC
     } else if(index == 4) {
         grob <- object@PlotD
+    } else if(index == 5) {
+        grob <- object@Grob
     } else {
         stop("Subscript out of bounds")
     }
@@ -398,18 +401,170 @@ setMethod(f="getGrob",
 #' @rdname drawPlot-methods
 #' @aliases drawPlot
 #' @importFrom grid grid.draw
+#' @importFrom grid grid.newpage
 #' @exportMethod drawPlot
 setMethod(
     f="drawPlot",
     signature="Waterfall",
     definition=function(object, ...){
-        mainPlot <- object@Grob
+        mainPlot <- getGrob(object, index=5)
+        grid::grid.newpage()
         grid::grid.draw(mainPlot)
     }
 )
 
 ################################################################################
 ####################### Method function definitions ############################
+
+#' @rdname setMutationHierarchy-methods
+#' @aliases setMutationHierarchy
+#' @noRd
+#' @importFrom data.table data.table
+#' @importFrom data.table setDT
+#' @importFrom grDevices colors
+setMethod(f="setMutationHierarchy",
+          signature="data.table",
+          definition=function(object, mutationHierarchy, verbose, ...){
+              
+              # if a mutation hierarchy is not specified attempt to create one
+              if(is.null(mutationHierarchy)){
+                  memo <- paste("mutationHierarchy is null, setting a mutation hierarchy randomly",
+                                "this is strongly discouraged!!!!!!!")
+                  warning(memo)
+                  
+                  if(!"mutation" %in% colnames(object)){
+                      memo <- paste("column \"mutation\" was not found in input!")
+                      stop(memo)
+                  } else {
+                      mutations <- unique(object$mutation)
+                  }
+                  
+                  newCol <- grDevices::colors(distinct=TRUE)[!grepl("^gray", grDevices::colors(distinct=TRUE))]
+                  mutationHierarchy <- data.table::data.table("mutation"=mutations, 
+                                                              "color"=sample(newCol, length(mutations)))
+                  
+              }
+                  
+              # perform some quality checks on mutationHierarchy
+              
+              # check that mutationHiearchy is a data table
+              if(!any(class(mutationHierarchy) %in% "data.table")){
+                  memo <- paste("mutationHiearchy is not an object of class",
+                                "data.table, attempting to coerce.")
+                  warning(memo)
+                  mutationHierarchy <- data.table::setDT(mutationHierarchy)
+              }
+              
+              # check for the correct columns
+              if(!all(colnames(mutationHierarchy) %in% c("mutation", "color"))){
+                  missingCol <- colnames(mutationHierarchy)[!c("mutation", "color") %in% colnames(mutationHierarchy)]
+                  memo <- paste("The correct columns were not found in",
+                                "mutationHierarchy, missing", toString(missingCol))
+                  stop(memo)
+              }
+              
+              # check that all mutations are specified
+              if(!all(object$mutation %in% mutationHierarchy$mutation)){
+                  missingMutations <- unique(object$mutation[!object$mutation %in% mutationHierarchy$mutation])
+                  memo <- paste("The following mutations were found in the",
+                                "input however were not specified in the",
+                                "mutationHierarchy!", toString(missingMutations),
+                                "adding these in as least important and",
+                                "assigning random colors!")
+                  warning(memo)
+                  newCol <- grDevices::colors(distinct=TRUE)[!grepl("^gray", grDevices::colors(distinct=TRUE))]
+                  tmp <- data.table::data.table("mutation"=missingMutations,
+                                                "color"=sample(newCol, length(missingMutations)))
+                  mutationHierarchy <- data.table::rbindlist(list(mutationHierarchy, tmp), use.names=TRUE, fill=TRUE)
+              }
+              
+              # add in a pretty print mutation labels
+              mutationHierarchy$label <- gsub("_", " ", mutationHierarchy$mutation)
+              mutationHierarchy$label <-  gsub("'", "' ", mutationHierarchy$label)
+              
+              # check for duplicate mutations
+              if(any(duplicated(mutationHierarchy$mutation))){
+                  duplicateMut <- mutationHierarchy[duplicated(mutationHierarchy$mutation),"mutation"]
+                  memo <- paste("The mutation type",toString(as.character(duplicateMut)),
+                                "was duplicated in the supplied mutationHierarchy!")
+                  warning(memo)
+                  mutationHierarchy <- mutationHierarchy[!duplicated(mutationHierarchy$mutation),]
+              }
+              
+              # ensure columns are of the proper type
+              mutationHierarchy$color <- as.character(mutationHierarchy$color)
+              mutationHierarchy$mutation <- as.character(mutationHierarchy$mutation)
+              
+              # print status message
+              if(verbose){
+                  memo <- paste("Setting the hierarchy of mutations from most",
+                                "to least deleterious and mapping to colors:",
+                                toString(mutationHierarchy$mutation))
+                  message(memo)
+              }
+              
+              return(mutationHierarchy)
+          })
+
+#' @rdname Waterfall-methods
+#' @aliases Waterfall
+#' @param object Object of class data.table
+#' @param verbose Boolean for status updates
+#' @noRd
+setMethod(f="toWaterfall",
+          signature="data.table",
+          definition=function(object, hierarchy, labelColumn, verbose, ...){
+              # print status message
+              if(verbose){
+                  memo <- paste("Converting", class(object),
+                                "to expected waterfall format")
+                  message(memo)
+              }
+              
+              # set up the label variables
+              label <- NA
+              labelFlag <- TRUE
+              
+              # if a label column exists and is proper overwrite the label variable
+              # if not change the flag
+              if(!is.null(labelColumn)){
+                  if(length(labelColumn) != 1) {
+                      memo <- paste("Parameter \"labelColumn\" must be of length 1!",
+                                    "Found length to be", length(labelColumn))
+                      warning(memo)
+                      labelFlag <- FALSE
+                  }
+                  
+                  if(!labelColumn %in% colnames(object)){
+                      memo <- paste("could not find column:", labelColumn,
+                                    " valid names are:", toString(colnames(object)))
+                      warning(memo)
+                      labelFlag <- FALSE
+                  }
+                  
+                  if(labelFlag){
+                      label <- object[,labelColumn, with=FALSE]
+                  }
+              }
+              
+              # check for correct columns
+              correctCol <- c("sample", "gene", "mutation")
+              if(!all(correctCol %in% colnames(object))){
+                  missingCol <- correctCol[!correctCol %in% colnames(object)]
+                  memo <- paste("Could not find correct column names, missing:",
+                                toString(missingCol))
+                  stop(memo)
+              }
+              
+              # combine all columns into a consistent format
+              waterfallFormat <- cbind(object, label)
+              colnames(waterfallFormat) <- c("sample", "gene", "mutation", "label")
+              
+              # convert appropriate columns to factor
+              waterfallFormat$sample <- factor(waterfallFormat$sample)
+              
+              return(waterfallFormat)
+          })
 
 #' @rdname Waterfall-methods
 #' @aliases Waterfall
@@ -478,23 +633,48 @@ setMethod(f="calcSimpleMutationBurden",
               # set primaryData as the object
               primaryData <- object
               
-              # quality checks
-              if(length(coverage) > 1 && !is.null(coverage)){
-                  memo <- paste("coverage has a length > 1, using only the",
-                                "first element.")
-                  warning(memo)
-                  coverage <- coverage[1]
+              # status message
+              if(verbose){
+                  memo <- paste("Calculating frequency and mutation burden.")
+                  message(memo)
               }
-              if(!is.numeric(coverage) && !is.null(coverage)){
+              
+              # quality checks
+              if(!all(is.numeric(coverage)) && !is.null(coverage)){
                   memo <- paste("coverage is not numeric, attempting to coerce.")
                   warning(memo)
                   coverage <- as.numeric(coverage)
               }
               
-              # status message
-              if(verbose){
-                  memo <- paste("Calculating frequency and mutation burden.")
-                  message(memo)
+              # if coverage is a vector check that each sample has a corresponding coverage value
+              if(length(coverage) > 1 && !is.null(coverage)){
+                  
+                  # check that there are no duplicate samples in coverage
+                  if(any(duplicated(names(coverage)))){
+                      memo <- paste("Found duplicate names in coverage, removing duplicates!")
+                      warning(memo)
+                      coverage <- coverage[!duplicated(names(coverage))]
+                  }
+                  
+                  # check that there are no "extra" samples in coverage
+                  if(any(!names(coverage) %in% unique(primaryData$sample))){
+                      extraSamples <- names(coverage)[!names(coverage) %in% unique(primaryData$sample)]
+                      memo <- paste("The following names in coverage are were not found in the data",
+                                    toString(extraSamples), "removing these from coverage!")
+                      warning(memo)
+                      coverage <- coverage[!names(coverage) %in% extraSamples]
+                  }
+                  
+                  # check that each sample has a value for coverage
+                  if(any(!unique(primaryData$sample) %in% names(coverage))){
+                      missingSamples <- unique(primaryData$sample)
+                      missingSamples <- missingSamples[!missingSamples %in% names(coverage)]
+                      memo <- paste("coverage has length > 1 however a coverage value could",
+                                    "not be found for all samples, samples missing a coverage",
+                                    "value are:", toString(missingSamples), "...setting coverage to NULL!")
+                      warning(memo)
+                      coverage <- NULL
+                  }
               }
               
               # dont include any samples with NA values for genes
@@ -513,19 +693,33 @@ setMethod(f="calcSimpleMutationBurden",
                                                                 use.names=TRUE, fill=TRUE)
               }
               
-              # if coverage is not specified return just frequencies
-              if(!is.numeric(coverage)){
+              # if coverage is not specified return just frequencies else use it in the calculations
+              if(is.null(coverage)){
+                  
                   if(verbose){
                       memo <- paste("coverage not specified, could not",
                                     "calculate the mutation burden")
                       message(memo)
-                      simpleMutationCounts$mutationBurden <- NA
-                      return(simpleMutationCounts)
-                  }
-              } 
+                  }      
+
+                  simpleMutationCounts$mutationBurden <- NA
+                  simpleMutationCounts$coverage <- NA
+                  return(simpleMutationCounts)
+              } else if(length(coverage) > 1){
+                  
+                  # need to match coverage to sample
+                  coverage <- data.table::as.data.table(coverage, keep.rownames=TRUE)
+                  colnames(coverage) <- c("sample", "coverage")
+                  simpleMutationCounts <- merge(simpleMutationCounts, coverage, by=c("sample"))
+                  
+              } else {
+                  
+                  # assign just the single coverage value
+                  simpleMutationCounts$coverage <- coverage
+              }
               
               # mutation burden calculation
-              simpleMutationCounts$mutationBurden <- simpleMutationCounts$Freq/coverage * 1000000
+              simpleMutationCounts$mutationBurden <- simpleMutationCounts$Freq/simpleMutationCounts$coverage * 1000000
               return(simpleMutationCounts)
           })
 
@@ -539,6 +733,7 @@ setMethod(f="calcSimpleMutationBurden",
 #' @noRd
 #' @importFrom data.table setDT
 #' @importFrom data.table data.table
+#' @importFrom data.table as.data.table
 setMethod(f="calcComplexMutationBurden",
           signature="data.table",
           definition=function(object, coverage, verbose, ...){
@@ -546,42 +741,81 @@ setMethod(f="calcComplexMutationBurden",
               # set primaryData as the object
               primaryData <- object
               
-              # quality checks
-              if(length(coverage) > 1 && !is.null(coverage)){
-                  memo <- paste("coverage has a length > 1, using only the",
-                                "first element.")
-                  warning(memo)
-                  coverage <- coverage[1]
+              # status message
+              if(verbose){
+                  memo <- paste("Calculating complex mutation burden.")
+                  message(memo)
               }
-              if(!is.numeric(coverage) && !is.null(coverage)){
+              
+              # quality checks
+              if(!all(is.numeric(coverage)) && !is.null(coverage)){
                   memo <- paste("coverage is not numeric, attempting to coerce.")
                   warning(memo)
                   coverage <- as.numeric(coverage)
               }
               
-              # status message
-              if(verbose){
-                  memo <- paste("Calculating a complex mutation burden.")
-                  message(memo)
+              # if coverage is a vector check that each sample has a corresponding coverage value
+              if(length(coverage) > 1 && !is.null(coverage)){
+                  
+                  # check that there are no duplicate samples in coverage
+                  if(any(duplicated(names(coverage)))){
+                      memo <- paste("Found duplicate names in coverage, removing duplicates!")
+                      warning(memo)
+                      coverage <- coverage[!duplicated(names(coverage))]
+                  }
+                  
+                  # check that there are no "extra" samples in coverage
+                  if(any(!names(coverage) %in% unique(primaryData$sample))){
+                      extraSamples <- names(coverage)[!names(coverage) %in% unique(primaryData$sample)]
+                      memo <- paste("The following names in coverage are were not found in the data:",
+                                    toString(extraSamples), "...removing these from coverage!")
+                      warning(memo)
+                      coverage <- coverage[!names(coverage) %in% extraSamples]
+                  }
+                  
+                  # check that each sample has a value for coverage
+                  if(any(!unique(primaryData$sample) %in% names(coverage))){
+                      missingSamples <- unique(primaryData$sample)
+                      missingSamples <- missingSamples[!missingSamples %in% names(coverage)]
+                      memo <- paste("coverage has length > 1 however a coverage value could",
+                                    "not be found for all samples, samples missing a coverage",
+                                    "value are:", toString(missingSamples), "...setting coverage to NULL!")
+                      warning(memo)
+                      coverage <- NULL
+                  }
               }
               
               # obtain a data table of mutation counts on the sample level
               complexMutationCounts <- as.data.frame(table(primaryData[,c('sample', 'mutation')]))
               data.table::setDT(complexMutationCounts)
               
-              # if coverage is not specified return just frequencies
-              if(!is.numeric(coverage)){
+              # if coverage is not specified return just frequencies else use it in the calculations
+              if(is.null(coverage)){
                   if(verbose){
                       memo <- paste("coverage not specified, could not",
-                                    "calculate the mutation burden... skipping")
+                                    "calculate the mutation burden")
                       message(memo)
-                      complexMutationCounts$mutationBurden <- NA
-                      return(complexMutationCounts)
-                  }
-              } 
+                  }      
+
+                  complexMutationCounts$mutationBurden <- NA
+                  complexMutationCounts$coverage <- NA
+                  return(complexMutationCounts)
+                  
+              } else if(length(coverage) > 1){
+                  
+                  # need to match coverage to sample
+                  coverage <- data.table::as.data.table(coverage, keep.rownames=TRUE)
+                  colnames(coverage) <- c("sample", "coverage")
+                  complexMutationCounts <- merge(complexMutationCounts, coverage, by=c("sample"))
+                  
+              } else {
+                  
+                  # assign just the single coverage value
+                  complexMutationCounts$coverage <- coverage
+              }
               
               # mutation burden calculation
-              complexMutationCounts$mutationBurden <- complexMutationCounts$Freq/coverage * 1000000
+              complexMutationCounts$mutationBurden <- complexMutationCounts$Freq/complexMutationCounts$coverage * 1000000
               return(complexMutationCounts)
           })
 
@@ -1126,6 +1360,7 @@ setMethod(f="buildMutationPlot",
                                                   values=getData(object, name="mutationHierarchy")$color,
                                                   breaks=getData(object, name="mutationHierarchy")$mutation,
                                                   drop=FALSE)
+                  plotTheme <- plotTheme + theme(legend.position="none")
               }
               
               # titles
@@ -1139,7 +1374,7 @@ setMethod(f="buildMutationPlot",
               x_scale <- scale_x_discrete(drop=FALSE)
               
               #  geom definition
-              plotGeom <- geom_bar(stat='identity', alpha=.75, width=1)
+              plotGeom <- geom_bar(stat='identity', alpha=1, width=1)
               
               # plot
               if(toupper(plotA) == toupper("frequency")) {
@@ -1252,7 +1487,8 @@ setMethod(f="buildGenePlot",
               # theme
               plotTheme <- theme(axis.text.y=element_text(colour='black', face='italic'),
                                  axis.title.y=element_blank(),
-                                 legend.position=('none'))
+                                 legend.position=('none'), panel.grid.major.y=element_blank(),
+                                 panel.grid.minor.y=element_blank())
               # titles
               if(plotB == "frequency"){
                   plotYlabel <- ylab('# Mutant')
@@ -1274,7 +1510,7 @@ setMethod(f="buildGenePlot",
               }
               
               # geom definition
-              plotGeom <- geom_bar(position='stack', alpha=.75, width=1, stat='identity')
+              plotGeom <- geom_bar(position='stack', alpha=1, width=1, stat='identity')
               
               # plot
               if(plotB == "proportion"){
@@ -1363,6 +1599,18 @@ setMethod(f="buildWaterfallPlot",
               # extract the data we need
               primaryData <- getData(object, name="primaryData")
               paletteData <- getData(object, name="mutationHierarchy")
+              mutationData <- getData(object, name="complexMutationCounts")
+              
+              # subset all mutation data to just the mutations in mutationData
+              # this should contain everything in the primaryData and other plots
+              # and is the staring point for the legend, using the param drop will
+              # remove legend entries for those not in the primary data at all
+              mutationData <- as.character(unique(mutationData[mutationData$Freq > 0,]$mutation))
+              paletteData <- paletteData[paletteData$mutation %in% mutationData,]
+              
+              # this should keep the hierarchy but remove unused levels based on mutationData
+              primaryData$mutation <- factor(primaryData$mutation,
+                                             levels=levels(primaryData$mutation)[levels(primaryData$mutation) %in% paletteData$mutation])
               
               # there could be samples with no gene information assign these a gene but no
               # mutation so they are plotted correctly
@@ -1511,17 +1759,17 @@ setMethod(f="arrangeWaterfallPlot",
                   sectionWidths <- c(0, 1)
               } else {
                   if(is.null(sectionWidths)){
-                      sectionWidths <- c(.25, .75)
+                      sectionWidths <- c(.20, .80)
                   } else if(length(sectionWidths) != 2){
                       memo <- paste("sectionWidths should be of length 2... Using",
                                     "default values!")
                       warning(memo)
-                      sectionWidths <- c(.25, .75)
+                      sectionWidths <- c(.20, .80)
                   } else if(!all(is.numeric(sectionWidths))) {
                       memo <- paste("sectionWidths must be numeric... Using",
                                     "default values!")
                       warning(memo)
-                      sectionWidths <- c(.25, .75)
+                      sectionWidths <- c(.20, .80)
                   }
               }
               

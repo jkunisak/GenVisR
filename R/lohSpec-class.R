@@ -1,0 +1,1093 @@
+################################################################################
+##################### Public/Private Class Definitions #########################
+
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Public Class !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
+#' Class lohSpec
+#' 
+#' An S4 class for the lohSpec plot object
+#' @name lohSpec
+#' @rdname lohSpec-class
+#' @slot lohFreq_plot gtable object for the lohFreq plot
+#' @slot lohSpec_plot gtable object for the lohSpec plot
+#' @slot lohData data.table object soring loh data with column names: sample, 
+#' chromosome, position, t_vaf, n_vaf. 
+#' @exportClass lohSpec
+#' @importFrom data.table data.table
+#' @importFrom gtable gtable
+methods::setOldClass("gtable")
+setClass(
+    Class="lohSpec",
+    representation=representation(lohFreq_plot="gtable",
+                                  lohSpec_plot="gtable",
+                                  Grob="gtable",
+                                  lohData="data.table"),
+    validity = function(object) {
+        
+    }
+)
+
+#' Constructor for the lohSpec class
+#' 
+#' @name lohSpec
+#' @rdname lohSpec-class
+#' @param input Object of class VarScan.
+#' @param samples Character vector specifying samples to plot. If not NULL
+#' all samples in "input" not specified with this parameter are removed.
+#' @param chromosomes Character vector specifying chromosomes to plot. If not NULL
+#' all chromosomes in "input" not specified with this parameter are removed.
+#' @param BSgenome Object of class BSgenome to extract genome wide chromosome 
+#' coordinates
+#' @param step Integer value specifying the step size (i.e. the number of base
+#' pairs to move the window). required when method is set to slide
+#' (see details).
+#' @param windowSize Integer value specifying the size of the window in base
+#' pairs in which to calculate the mean Loss of Heterozygosity (see details).
+#' @param normal Boolean specifiying what value to use for normal VAF when 
+#' calcualting average LOH difference. Defaults to .50\% if FALSE. 
+#' If TRUE, will use average normal VAF in each individual sample as value 
+#' to calculate LOH.
+#' @export
+LohSpec <- function(input, lohSpec=TRUE, chromosomes="autosomes", samples=NULL, 
+                    BSgenome=BSgenome, step=1000000, windowSize=2500000, 
+                    normal=FALSE, gradientMidpoint=.2, gradientColors=c("#ffffff", "#b2b2ff", "#000000"),
+                    plotAType="proportion", plotALohCutoff=0.2, plotAColor="#98F5FF",
+                    plotALayers=NULL, plotBLayers=NULL, sectionHeights=c(0.25, 0.75), verbose=FALSE){
+   
+    ## Calculate all data for plots
+    lohDataset <- lohData(object=input, lohSpec=lohSpec, chromosomes=chromosomes, samples=samples, 
+                        BSgenome=BSgenome, step=step, plotALohCutoff=plotALohCutoff,
+                        windowSize=windowSize, normal=normal, verbose=verbose)
+    
+    ## Initialize the lohSpecPlots object
+    plots <- lohSpecPlots(object=lohDataset, plotALohCutoff=plotALohCutoff, 
+                          plotAType=plotAType, plotAColor=plotAColor, 
+                          plotALayers=plotALayers, plotBLayers=plotBLayers, 
+                          gradientMidpoint=gradientMidpoint, gradientColors=gradientColors,
+                          verbose=verbose)
+    
+    ## Arrange freq and spectrum plots 
+    Grob <- arrangeLohPlots(object=plots, sectionHeights=sectionHeights, 
+                            verbose=verbose)
+
+    ## Initialize the object
+    new("lohSpec", lohFreq_plot=getGrob(plots, index=1), lohSpec_plot=getGrob(plots, index=2), 
+        lohData=getData(lohDataset, name="primaryData"), Grob=Grob)
+}
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Private Classes !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
+
+#' Private Class lohData
+#' 
+#' An S4 class for the Data of the loh plot object
+#' @name lohData-class
+setClass("lohData",
+         representation=representation(primaryData="data.table",
+                                       windowData="data.table",
+                                       windowCalcData="data.table",
+                                       chrData="data.table", 
+                                       lohFreqData="data.table"),
+         validity = function(object){
+             
+         }
+         )
+
+#' Constructor for the lohData class.
+#' 
+#' @name lohData
+#' @rdname lohData-class
+#' @param object Object of class VarScan 
+lohData <- function(object, lohSpec, chromosomes, samples, BSgenome, step, windowSize, 
+                    normal,  plotALohCutoff, verbose) {
+
+    ## Obtain LOH data for desired chromosomes and samples
+    primaryData <- getLohData(object=object, verbose=verbose, lohSpec=TRUE, 
+                              germline=FALSE)
+    
+    ## Subset data to only the desired chromosomes to be plotted
+    primaryData <- chrSubset(object=primaryData, chromosomes=chromosomes, 
+                             verbose=verbose)
+    
+    ## Subset data to only the desired samples to be plotted
+    primaryData <- sampleSubset(object=primaryData, samples=samples, 
+                                verbose=verbose)
+    
+    ## Obtain chromosome boundaries from BSgenome object
+    chrData <- annoGenomeCoord(object=primaryData, BSgenome=BSgenome, 
+                               verbose=verbose)
+   
+    ## Produce data.table with window position data
+    windowData <- getLohSlidingWindow(object=primaryData, step=step, 
+                                      windowSize=windowSize, verbose=verbose)
+    
+    ## Perform loh calculations on each chromosome and sample within each window
+    lohAbsDiff <- getLohCalculation(object=primaryData, 
+                                    windowData=windowData, normal=normal, 
+                                    verbose=verbose)
+    
+    ## Calculate avg loh for overlapping regions
+    lohAbsDiffOverlap <- rbindlist(getLohStepCalculation(object=lohAbsDiff, 
+                                                         step=step, verbose=verbose))
+    
+    ## Obtain LOH segmentation dataset
+    lohSegmentation <- getLohSegmentation(object=lohAbsDiffOverlap, 
+                                          verbose=verbose)
+    
+    ## Obtain LOH frequency/proportion dataset
+    lohFreq <- getLohFreq(object=lohSegmentation, plotALohCutoff=plotALohCutoff,
+                          chrData=chrData, verbose=verbose)
+   
+    ## Initialize the object
+    new("lohData", primaryData=primaryData, windowData=rbindlist(windowData), 
+        windowCalcData=lohAbsDiffOverlap, chrData=chrData, 
+        lohFreqData=lohFreq)
+}
+
+#' Private Class lohSpecPlots
+#' 
+#' An S4 class for the plots of the lohSpec class
+#' @name lohSpecPlots-class
+#' @rdname lohSpecPlots-class
+#' @slot PlotA gtable object for the loh spectrum
+#' @slot PlotB gtable object for the loh frequency/proportion
+#' @import methods
+#' @importFrom gtable gtable
+#' @noRd
+setClass("lohSpecPlots", 
+         representation=representation(PlotA="gtable",
+                                       PlotB="gtable"),
+         validity = function(object) {
+             
+         })
+
+#' Constructor for the lohSpecPlots class
+#' 
+#' @name lohSpecPlots
+#' @rdname lohSpecPlots-class
+#' @param object Object of class lohData
+#' @importFrom gtable gtable
+#' @noRd
+lohSpecPlots <- function(object, plotALohCutoff, plotAType, plotAColor, 
+                         plotALayers, plotBLayers, gradientMidpoint, gradientColors, verbose) {
+    ## Use the loh segmentation data to generate lohFreq plots
+    lohFreqPlot <- buildLohFreq(object=object, plotALohCutoff=plotALohCutoff, 
+                                plotAType=plotAType, plotAColor=plotAColor,
+                                plotALayers=plotALayers, verbose=verbose)
+    
+    ## Use the lohData to generate lohSpec plots
+    lohSpecPlot <- lohSpec_buildMainPlot(object=object, gradientMidpoint=gradientMidpoint,
+                                         gradientColors=gradientColors, plotBLayers=plotBLayers, verbose=verbose)
+    
+    new("lohSpecPlots", PlotA=lohFreqPlot, PlotB=lohSpecPlot)
+}
+
+################################################################################
+###################### Accessor function definitions ###########################
+
+#' Helper function to get data from classes
+#' 
+#' @rdname getData-methods
+#' @aliases getData
+.getData_lohSpec <- function(object, name=NULL, index=NULL, ...) {
+    if(is.null(name) & is.null(index)){
+        memo <- paste("Both name and index are NULL, one must be specified!")
+        stop(memo)
+    }
+    
+    if(is.null(index)){
+        index <- 0
+    } else {
+        if(index > 1){
+            memo <- paste("index out of bounds")
+            stop(memo)
+        }
+    }
+    
+    if(is.null(name)){
+        name <- "noMatch"
+    } else {
+        slotAvailableName <- c("primaryData")
+        if(!(name %in% slotAvailableName)){
+            memo <- paste("slot name not found, specify one of:", toString(slotAvailableName))
+            stop(memo)
+        }
+    }
+    
+    if(name == "primaryData" | index == 1){
+        data <- object@primaryData
+    }
+    
+    return(data)
+}
+
+#' @rdname getData-methods
+#' @aliases getData
+setMethod(f="getData",
+          signature="lohData",
+          definition=.getData_lohSpec)
+
+#' @rdname getData-methods
+#' @aliases getData
+setMethod(f="getData",
+          signature="lohSpec",
+          definition=.getData_lohSpec)
+
+#' Helper function to extract grobs from objects
+#'
+#' @rdname getGrob-methods
+#' @aliases getGrob
+#' @noRd
+.getGrob_lohSpec <- function(object, index=1, ...){
+    if(index == 1){
+        grob <- object@PlotA
+    } else if(index == 2) {
+        grob <- object@PlotB
+    } else if (index == 3) {
+        grob <- object@Grob
+    } else {
+        stop("Subscript out of bounds") 
+    }
+    return(grob)
+}
+
+#' @rdname getGrob-methods
+#' @aliases getGrob
+setMethod(f="getGrob",
+          signature="lohSpecPlots",
+          definition=.getGrob_lohSpec)
+
+#' @rdname getGrob-methods
+#' @aliases getGrob
+setMethod(f="getGrob",
+          signature="lohSpec",
+          definition=.getGrob_lohSpec)
+
+
+#' @rdname drawPlot-methods
+#' @aliases drawPlot
+#' @importFrom grid grid.draw
+#' @importFrom grid grid.newpage
+#' @exportMethod drawPlot
+setMethod(
+    f="drawPlot",
+    signature="lohSpec",
+    definition=function(object, ...){
+        mainPlot <- getGrob(object, index=3)
+        grid::grid.newpage()
+        grid::grid.draw(mainPlot)
+    }
+)
+
+################################################################################
+###################### Method function definitions #############################
+
+######################################################
+##### Function to obtain chromosomes of interest #####
+#' @rdname getLohData-methods
+#' @aliases getLohData
+#' @param object Object of class data.table
+#' @param chromosomes character vector of chromosomes to retain
+#' @param verbose Boolean for status updates
+#' @return data.table object with calculated mutation distances
+#' @noRd
+setMethod(f="chrSubset",
+          signature="data.table",
+          definition=function(object, chromosomes, verbose, ...){
+              
+              # print status message
+              if(verbose){
+                  memo <- paste("Performing chromosome subsets")
+                  message(memo)
+              }
+              
+              # if chromosomes is null we dont want to do anything just return the object back
+              if(is.null(chromosomes)){
+                  return(object)
+              }
+              
+              # perform quality checks on the chromosome parameter arguments
+              
+              # check for character vector
+              if(!is.character(chromosomes)){
+                  memo <- paste("Input to chromosomes should be a character vector,
+                                specifying which chromosomes to plot, 
+                                attempting to coerce...")
+                  warning(memo)
+                  chromosomes <- as.character(chromosomes)
+              }
+              
+              ## Check format of the chromosome column
+              if (!all(grepl("^chr", object$chromosome))) {
+                  memo <- paste0("Did not detect the prefix chr in the chromosome column",
+                                 "of x... adding prefix")
+                  message (memo)
+                  object$chromosome <- paste("chr", object$chromosome, sep="")
+              } else if (all(grepl("^chr", object$chromosome))) {
+                  memo <- paste0("Detected chr in the chromosome column of x...",
+                                 "proceeding")
+                  message(memo)
+              } else {
+                  memo <- paste0("Detected unknown or mixed prefixes in the chromosome",
+                                 " colum of object... should either be chr or non (i.e.) chr1 or 1")
+                  message(memo)
+              }
+              
+              ## Determine which chromosomes to plot
+              ## Only include autosomes
+              if (chromosomes[1] == "autosomes") {
+                  chromosomes <- paste("chr", as.character(c(seq(1:22))), sep="")
+              }
+              ## Include all chromosomes
+              if (chromosomes[1] == "all") {
+                  chromosomes <- unique(object$chromosome)
+                  chromosomes <- chromosomes[-grep("GL", chromosomes)]
+                  chromosomes <- chromosomes[-grep("MT", chromosomes)]
+              }
+              
+              # check for specified chromosomes not in the original input
+              missingChr <- chromosomes[!chromosomes %in% unique(object$chromosome)]
+              if(length(missingChr) != 0){
+                  memo <- paste("The following chromosomes were designated to be kept but were not found:",
+                                toString(missingChr), "\nValid chromosomes are", toString(unique(object$chromosome)))
+                  warning(memo)
+              }
+              
+              # perform the subset
+              object <- object[object$chromosome %in% chromosomes,]
+              object$chromosome <- factor(object$chromosome)
+              
+              # check that the object has a size after subsets
+              if(nrow(object) < 1){
+                  memo <- paste("no entries left to plot after chromosome subsets")
+                  stop(memo)
+              }
+              
+              return(object)
+          })
+
+
+##################################################
+##### Function to obtain samples of interest #####
+#' @rdname getLohData-methods
+#' @aliases getLohData
+#' @param object Object of class data.table
+#' @param samples character vector of samples to retain
+#' @param verbose Boolean for status updates
+#' @return data.table object with calculated mutation distances
+#' @noRd
+setMethod(f="sampleSubset",
+          signature="data.table",
+          definition=function(object, samples, verbose, ...){
+              
+              # print status message
+              if(verbose){
+                  memo <- paste("Performing sample subsets")
+                  message(memo)
+              }
+              
+              ## If samples is null, we don't want to do anything and just return the object
+              if (is.null(samples)) {
+                  return(object)
+              }
+              
+              ## Perform quality checkes on the sample parameter arguments
+              if (!is.character(samples)) {
+                  memo <- paste("Input to samples should be a character vector, 
+                                attempting to coerce...")
+                  warning(memo)
+              }
+              
+              ## Check for specified samples not in the original input
+              missingSamp <- samples[!samples %in% unique(object$sample)]
+              if (length(missingSamp) != 0) {
+                  memo <- paste("The following samples were designated to be 
+                                keptbut were not found:", toString(missingSamp), 
+                                "\nValid csamples are", 
+                                toString(unique(object$sample)))
+                  warning(memo)
+              } 
+              
+              ## Perform the subset
+              object <- object[object$sample %in% samples]
+              object$sample <- factor(object$sample)
+              
+              ## Check that the object has a size after subsets
+              if(nrow(object) < 1){
+                  memo <- paste("no entries left to plot after chromosome subsets")
+                  stop(memo)
+              }
+              
+              return(object)
+        })
+
+
+#####################################################
+##### Function to get the chromosome boundaries #####
+#' @param object Object of class data.table
+#' @param BSgenome Object of class BSgenome, used for extracting chromosome boundaries
+#' @param verbose Boolean for status updates
+#' @return Data.table with chr and start/stop positions
+#' @importFrom GenomeInfoDb seqlengths
+#' @importFrom data.table as.data.table
+#' @importFrom data.table rbindlist
+#' @importFrom gtools mixedsort
+#' @noRd
+setMethod(f="annoGenomeCoord", 
+          signature="data.table",
+          definition=function(object, BSgenome, verbose, ...){
+              
+              ## Print status message
+              if (verbose) {
+                  memo <- paste("Acquiring chromosome boundaries from BSgenome object")
+                  message(memo)
+              }
+              
+              ## Perform quality check on BSgenome object
+              if (is.null(BSgenome)) {
+                  memo <- paste("BSgenome object is not specified, whole chromosomes",
+                                "will not be plotted, this is not recommended!")
+                  warning(memo)
+                  object$chromosome <- factor(object$chromosome, levels=gtools::mixedsort(unique(as.character(object$chromosome))))
+                  return(object)
+              } else if (is(BSgenome, "BSgenome")) {
+                  if(verbose){
+                      memo <- paste("BSgenome passed object validity checks")
+                  }
+              } else {
+                  memo <- paste("class of the BSgenome object is", class(BSgenome),
+                                "should either be of class BSgenome or NULL",
+                                "setting this to param to NULL")
+                  warning(memo)
+                  BSgenome <- NULL
+              }
+              
+              ## Create a data table of genomic coordinates end positions
+              genomeCoord <- data.table::as.data.table(seqlengths(BSgenome))
+              colnames(genomeCoord) <- c("end")
+              genomeCoord$chromosome <- names(seqlengths(BSgenome))
+              genomeCoord$start <- 1
+
+              ## Check that chromosomes between BSgenome and original input match
+              chrMismatch <- as.character(unique(object[!object$chromosome %in% genomeCoord$chromosome,]$chromosome))
+              if (length(chrMismatch) >= 1) {
+                  memo <- paste("The following chromosomes do not match the supplied BSgenome object",
+                                toString(chrMismatch))
+                  warning(memo)
+                  
+                  ## Test if the chr mismatch is fixed by appending chr to chromosomes
+                  chrMismatch_appendChr <- length(as.character(unique(object[!paste0("chr", object$chromosome) %in% genomeCoord$chromosome,]$chromosome)))
+                  if(chrMismatch_appendChr < length(chrMismatch)){
+                      memo <- paste("appending \"chr\" to chromosomes in attempt to fix mismatch with the BSgenome")
+                      warning(memo)
+                      object$chromosome <- paste0("chr", object$chromosome)
+                  }
+              }
+              
+              ## Check to see if any chromosomes in the original input dataset lack genomic coordiantes
+              if (any(!unique(object$chromosome) %in% unique(genomeCoord$chromosome))) {
+                  missingGenomeCoord <- unique(object$chromosome)
+                  missingGenomeCoord <- missingGenomeCoord[!missingGenomeCoord %in% unique(genomeCoord_a$chromosome)]
+                  memo <- paste("The following chromosomes are missing genomic coordinates", toString(missingGenomeCoord),
+                                "Full genomic coordinates will not be plotted for these chromosomes")
+                  warning(memo)
+              }
+              
+              ## Filter the genomeCoord objext to only inlcude chromosomes in the input data
+              genomeCoord <- genomeCoord[genomeCoord$chromosome %in% unique(object$chromosome),]
+              
+              return(genomeCoord)
+
+        })
+
+
+##########################################################################
+##### Function to generate window position data for loh calculations #####
+#' @rdname getLohSlidingWindow-methods
+#' @param object of class lohData 
+#' @param step integer specifying the step size between the start position of
+#' each window
+#' @param windowSize integer specifying the window size for loh calcuations
+#' @return Data.table with window start/stop positions
+#' @aliases getLohSlidingWindow
+setMethod(f="getLohSlidingWindow",
+          signature="data.table",
+          definition=function(object, step, windowSize, ...){
+              if (verbose) {
+                  message("Calcuating window sizes for loh calcluations on all chromosomes in each individual sample")
+              }
+              
+              ## Perform quality check on input variables
+              
+              ## Check that step and windowSize are numeric vectors with length of 1
+              if (!is.numeric(windowSize)) {
+                  memo <- paste("WindowSize input value is not a numeric vector, attempting to coerce...")
+                  warning(memo)
+              }
+              if (!is.numeric(step)) {
+                  memo <- paste("Step input value is not a numeric vector, attempting to coerce...")
+                  warning(memo)
+              }
+              if (length(windowSize) > 1) {
+                  memo <- paste("Use only 1 numeric value to specify window size.")
+                  warning(memo)
+                  stop()
+              }
+              if (length(step) > 1) {
+                  memo <- paste("Use only 1 numeric value to specify step size.")
+                  warning(memo)
+                  stop()
+              }
+              if (step > windowSize) {
+                  memo <- paste("Step value is greater than windowSize. Make sure that the step value is 
+                                at most equal to the WindowSize. Changing step value to match the windowSize value.")
+                  warning(memo)
+                  step <- windowSize
+              }
+              ## Obtain lists for each sample and chromosome
+              out <- split(object, list(as.character(object$chromosome),
+                                          as.character(object$sample)))
+              
+              ## Obtain the window position values
+              window <- lapply(out, function(x, step, windowSize) {
+                  ## Get the min and max position on the chromosome
+                  min <- integer()
+                  max <- integer()
+                  window_stop_1 <- integer()
+                  window_num <- integer()
+                  min <- as.integer(min(as.numeric(as.character(x$position))))
+                  max <- as.integer(max(as.numeric(as.character(x$position))))
+                  ## Get the end of the first window position
+                  window_stop_1 <- min+windowSize
+                  ## Calculate the number of windows necessary
+                  num <- as.integer((max-min)/step)
+                  num <- as.vector(1:num)
+                  window_data_start <- vector()
+                  window_data_stop <- vector()
+                  
+                  ## Calculate exact window positions
+                  window_data <- lapply(num, function(x){
+                      window_data_start[x] <- as.integer(min+(step*(x-1)))
+                      window_data_stop[x] <- as.integer(window_stop_1+(step*(x-1)))
+                      window_data <- data.table(cbind(window_data_start[x], window_data_stop[x]))
+                      return(window_data)
+                  })
+                  window_data <- rbindlist(window_data)
+                  # Get window positions whose values are below max & set max as the 
+                  # final window position (end of the chromosome)
+                  colnames(window_data) <- c("window_start", "window_stop")
+                  window_final <- window_data[window_data$window_stop <= max,]
+                  window_final[nrow(window_final), 2] <- max
+                  ## Put in the chromosome 
+                  window_final$chromosome <- as.character(x$chromosome[1])
+                  return(window_final)
+              }, 
+              step = step, windowSize = windowSize)
+              
+              return(window)
+          })
+
+
+###############################################################
+##### Function to perform loh calcluations in each window #####
+#' @rdname getLohCalculation-methods
+#' @param object of class lohData 
+#' @param window_data of class data.table 
+#' @param normal integer specifying normal vaf
+#' @aliases getLohCalculation
+setMethod(f="getLohCalculation", 
+          signature="data.table",
+          definition=function(object, windowData, normal, verbose, ...) {
+
+              ## Print status message
+              if (verbose) {
+                  message("Calculating absolute mean difference between t/n VAF at each coordinate provided.")
+              }
+              
+              ## Perform quality checkes on the input parameters
+              if (!is.logical(normal)) {
+                  memo <- ("Input to specify normal VAF should be a boolean (T/F). True if 
+                           user wants to use normal VAF from varscan to identify tumor/normal LOH difference. 
+                           Flase if user wants to use 0.5 to identify tumor/normal LOH difference.")
+                  message(memo)
+              }
+              
+              ## Split object for each unqiuq sample-chr combination
+              object <- split(object, list(as.character(object$chromosome),
+                                           as.character(object$sample)))
+              
+              ## Separate out sample and window data by chromosome name
+              df <- lapply(object, function(sampleData, window, 
+                                                      normal) {
+                  chromosome <- as.character(sampleData[1,chromosome])
+                  sample <- as.character(sampleData[1,sample])
+                  chromosome.sample <- paste("\\b", paste(chromosome, sample, sep = "."), "\\b", sep = "")
+                  window <- windowData[[grep(chromosome.sample, names(windowData))]]
+                  ## For each window position, get the vaf data that falls 
+                  ## within that window
+                  dataset <- rbindlist(apply(window, 1, function(x, sampleData, normal){
+                      ## Determine which value to use for normal
+                      if (normal==FALSE) {
+                          normal <- 0.5
+                      }
+                      if (normal == TRUE) {
+                          normal <- round(sampleData[,mean(normal_var_freq)], 
+                                          digits=3)
+                      }
+                      
+                      w_start <- as.numeric(as.character(x[1]))
+                      w_stop <- as.numeric(as.character(x[2]))
+                      ## Filter out vaf data outside the window
+                      filtered_data <- sampleData[position >= w_start &
+                                                       position <= w_stop]
+                      
+                      ## Peroform loh calclulation to obtain avg loh in the 
+                      ## window's frame
+                      loh_calc_avg <- mean(abs(as.numeric(as.character(
+                          filtered_data$tumor_var_freq)) - normal))
+                      ## If no coordinates are found within the window,
+                      ## make as NA
+                      if (is.na(loh_calc_avg)) {
+                          loh_calc_avg <- NA
+                          w_start <- NA
+                          w_stop <- NA
+                      }
+                      filtered_data$loh_diff_avg <- loh_calc_avg
+                      filtered_data$window_start <- w_start
+                      filtered_data$window_stop <- w_stop
+                      return(filtered_data)
+                  }, 
+                  sampleData=sampleData, normal=normal))
+                  dataset <- na.omit(dataset, cols = c("loh_diff_avg", 
+                                                       "window_start", 
+                                                       "window_stop"))
+                  return(dataset)
+              }, window=windowData, normal=normal)
+              return(df)
+          })
+
+
+#######################################################################
+##### Function to perform loh calcluations in overlapping windows #####
+#' @rdname getLohStepCalculation-methods
+#' @param object of class lohData
+#' @param step integer 
+#' @aliases getLohStepCalculation
+setMethod(f = "getLohStepCalculation",
+          signature="list",
+          definition=function(object, step, ...) {
+              
+              ## Print status message
+              if (verbose) {
+                  message("Calculating loh in overlapping windows")
+              }
+              step_loh_calc <- lapply(object, function(x, step) {
+                  ## Get the sample and chromosome information
+                  sample <- unique(x$sample)
+                  chromosome <- unique(x$chromosome)
+                  
+                  ## Obtain boundaries for each step-sized window
+                  start <- unique(x$window_start)
+                  stop <- c(start[-1], max(x$window_stop))
+                  step_boundaries <- data.table(chromosome=chromosome, start=start, stop=stop)
+                  step_boundaries$sample <- sample
+                  
+                  ## Get the average loh within each step-sized window
+                  loh_df <- x
+                  loh_step_avg <- apply(step_boundaries, 1, function(x, loh_df_data) {
+                      start <- as.numeric(as.character(x[2]))
+                      stop <- as.numeric(as.character(x[3]))
+                      step_df <- loh_df_data[position >= start & 
+                                      position < stop]
+                      if (nrow(step_df) == 0) {
+                          loh_step_avg <- 0
+                          }
+                      if (nrow(step_df) > 0) {
+                          loh_step_avg <- mean(step_df$loh_diff_avg)
+                          }
+                      return(loh_step_avg)
+                  }, loh_df_data=loh_df)
+                  step_boundaries$loh_step_avg <- loh_step_avg
+                  return(step_boundaries)
+              }, step=step)
+              return(step_loh_calc)
+          })
+
+
+#############################################################
+##### Function to generate segmentation dataset for loh #####
+#' @rdname getLohSegmentation-methods
+#' @param object of class data.table
+#' @param chrData of class data.table 
+#' @aliases getLohSegmentation
+setMethod(f = "getLohSegmentation", 
+          signature="data.table",
+          definition=function(object, ...){
+              
+              ## Print status message
+              if (verbose) {
+                  message("Determining segmeans from LOH calculations")
+              }
+              segDfTemp <- split(object, list(as.character(object$sample)))
+              segmentationDf <- rbindlist(lapply(segDfTemp, function(x){
+                  x$midpoint <- floor((as.numeric(x$start) + as.numeric(x$stop))/2)
+                  lohSeg <- CNA(genomdat = as.numeric(x$loh_step_avg), chrom = x$chromosome,
+                                maploc = x$midpoint, data.type = "binary", sampleid = unique(x$sample))
+                  lohSeg <- segment(lohSeg)
+                  lohSeg <- lohSeg$output
+                  return(lohSeg)
+              }))
+              
+              return(segmentationDf)
+          })
+
+############################################################################
+##### Function to create dataset for the loh frequency/proportion plot #####
+#' @rdname getLohFreq-methods
+#' @param object of class lohData
+#' @param chrData of class data.table 
+#' @aliases getLohFreq
+setMethod(f="getLohFreq", 
+          signature="data.table",
+          definition=function(object, plotALohCutoff, chrData, verbose, ...){
+              
+              ## Print status message
+              if (verbose) {
+                  message("Determining proportion/frequency of samples with LOH in each region.")
+              }
+              
+              x <- object[,c("chrom", "loc.start", 
+                                                 "loc.end", "seg.mean", "ID")]
+              colnames(x) <- c("chromosome", "start", "end", "segmean", "sample")
+              
+              ## Remove any NA values in the data
+              if (any(is.na(x))) {
+                  na_rows_removed <- nrow(x) - nrow(na.omit(x))
+                  memo <- paste0("Removing", na_rows_removed, " rows containing NA values")
+                  message(memo)
+                  x <- na.omit(x)
+              }
+              
+              ## Make sure windows are consistent, if not disjoin them
+              tmp <- split(x, x$sample)
+              tmp_vec <- tmp[[1]]$end
+              if (any(!unlist(sapply(tmp, function(x) x[,"end"] %in% tmp_vec), use.names=F))) {
+                  memo <- paste0("Did not detect identical genomic segments for all samples",
+                                 " ...Performing disjoin operation")
+                  message(memo) 
+                  # here we split the DF up in an attempt to avoid complaints that lists are to large 
+                  split_df <- split(x, f=x$chromosome)
+                  x <- rbindlist(lapply(split_df, function(x) {
+                      # Create the Granges object for the data
+                      granges <- GenomicRanges::GRanges(seqnames=x$chromosome,
+                                                  ranges=IRanges::IRanges(start=x$start, end=x$end),
+                                                  "sample"=x$sample, "segmean"=x$segmean)
+                      
+                      # disjoin with grange, get a mapping of meta columns and expand it
+                      disJoint <- GenomicRanges::disjoin(granges, with.revmap=TRUE)
+                      revmap <- GenomicRanges::mcols(disJoint)$revmap
+                      disJoint <- rep(disJoint, lengths(revmap))
+                      
+                      # exract the meta columns and map them back to the disJoint GRanges object
+                      sample <- unlist(IRanges::extractList(GenomicRanges::mcols(granges)$sample, revmap))
+                      segmean <- unlist(IRanges::extractList(GenomicRanges::mcols(granges)$segmean, revmap))
+                      GenomicRanges::mcols(disJoint)$sample <- sample
+                      GenomicRanges::mcols(disJoint)$segmean <- segmean
+                      
+                      # convert the GRanges Object back to a data table
+                      disJoint <- as.data.table(disJoint)[,c("seqnames", "start", "end", "width",
+                                                         "sample", "segmean")]
+                      colnames(disJoint) <- c("chromosome", "start", "end", "width", "sample", "segmean")
+                      return(disJoint)
+                  }))
+              }
+              
+              ## Calculate columns of observed LOH and observed samples in the 
+              ## cohort for each segment
+              gainFreq <- function(x){length(x[x>=plotALohCutoff])}
+              gainFrequency <- aggregate(segmean~chromosome + start + end, 
+                                         data=x, gainFreq)$segmean
+              x <- aggregate(segmean~chromosome + start + end, data=x, length)
+              colnames(x)[which(colnames(x) %in% "segmean")] <- "sampleFrequency"
+              x$gainFrequency <- gainFrequency
+              
+              ## Calculate the proportion
+              x$gainProportion <- as.numeric(x$gainFrequency)/length(samples)
+              x <- data.table(x)
+              return(x)
+          })
+
+#################################################
+##### Function to create loh frequency plot #####
+#' @rdname buildLohFreq-methods
+#' @param object of class lohData
+#' @aliases buildLohFreq
+setMethod(f = "buildLohFreq",
+          signature="lohData",
+          definition=function(object, plotALohCutoff, plotAType, plotAColor, 
+                              plotALayers, verbose, ...) {
+              
+              ## Print status message
+              if (verbose) {
+                  message("Building LOH frequency or proportion plot")
+              }
+              
+              ## Perform quality checks on the input variables
+              if (!is.numeric(plotALohCutoff)) {
+                  memo <- paste("LOH cutoff value is not numeric, attempting to coerce...")
+                  message(memo)
+              }
+              if (!grepl("^#(\\d|[a-f]){6,8}$", plotAColor, ignore.case=TRUE)){
+                  memo <- paste("LOH frequency/proportion color is not a valid hexadecimal code.")
+                  message(memo)
+              }
+              if(!is.null(plotALayers)){
+                  if(!is.list(plotALayers)){
+                      memo <- paste("plotALayers is not a list")
+                      stop(memo)
+                  }
+                  
+                  if(any(!unlist(lapply(plotALayers, function(x) ggplot2::is.ggproto(x) | ggplot2::is.theme(x) | is(x, "labels"))))){
+                      memo <- paste("plotALayers is not a list of ggproto or ",
+                                    "theme objects... setting plotALayers to NULL")
+                      warning(memo)
+                      plotALayers <- NULL
+                  }
+              }              
+              finalDf <- object@lohFreqData
+              
+              ## Sort the chromosomes
+              chr <- gtools::mixedsort(as.character((unique(finalDf$chromosome))))
+              sample <- gtools::mixedsort(as.character((unique(finalDf$sample))))
+              finalDf$chromosome <- factor(finalDf$chromosome, levels=chr, labels=chr)
+              finalDf$sample <- factor(finalDf$sample, levels=sample, labels=sample)
+              
+              ## Build the frequency/proportion plot
+              ## Define parameters of the plot
+              plotTheme <- theme(axis.ticks.x=element_blank(),
+                                 axis.text.x=element_blank(),
+                                 axis.ticks.y=element_blank(),
+                                 panel.grid.major=element_blank(),
+                                 panel.grid.minor=element_blank(), 
+                                 legend.position="none")
+              
+              ## Define the facet
+              facet <- facet_grid(.~chromosome, scales="free_x", space="fixed")
+              
+              ## Assign the x axis label
+              xlabel <- xlab("Chromosome")
+              
+              ## Choose whether to plot aesthetics for proportion or frequency
+              if(grepl("^PROP", plotAType, ignore.case=TRUE)){
+                  ylabel <- ylab("Proportion of Loss of Heterozygosity")
+                  ymax <- 1
+                  finalDf$gain <- finalDf$gainProportion
+              } else if(grepl("^FREQ", plotAType, ignore.case=TRUE)){
+                  ylabel <- ylab("Frequency of Loss of Heterozygosity")
+                  ymax <- max(as.numeric(as.character(x$sampleFrequency)), na.rm=TRUE)
+                  finalDf$gain <- finalDf$gainFrequency
+              } else {
+                  memo <- paste0("did not recognize plotAType ", plotAType,
+                                 ", please specify one of \"proportion\" or \"frequency\"")
+                  stop(memo)
+              }
+               
+              ## Initiate the plot
+              finalDf$gain <- as.numeric(finalDf$gain)
+              finalDf$start <- as.numeric(finalDf$start)
+              finalDf$end <- as.numeric(finalDf$end)
+              p1 <- ggplot(data=finalDf, mapping=aes_string(xmin='start', 
+                                                            xmax='end',
+                                                            ymin=0,
+                                                            ymax='gain')) +
+                  geom_rect(fill=plotAColor) + scale_x_continuous(expand=c(0,0)) + 
+                  scale_y_continuous(expand=c(0,0), limits=c(0,1))
+              
+              p1 <- p1 + geom_hline(aes(yintercept=0), linetype="dotted")
+              
+              # build the plot
+              p1 <- p1 + ylabel + xlabel + facet + theme_bw() + plotTheme + plotALayers
+              print(p1)
+              
+              ## Convert to grob
+              lohFreqGrob <- ggplotGrob(p1)
+              return(lohFreqGrob)
+              
+          })
+
+################################################
+##### Function to generate lohSpec heatmap #####
+#' @rdname lohSpec_buildMainPlot-methods
+#' @param object of class lohData
+#' @aliases lohSpec_buildMainPlot
+setMethod(f = "lohSpec_buildMainPlot",
+          signature="lohData",
+          definition=function(object, gradientMidpoint, gradientColors, 
+                              plotBLayers, verbose, ...) {
+              
+              ## Print status message
+              if (verbose) {
+                  message("Building main LOH spectrum plot")
+              }
+              
+              ## Perform quality checks on the input variables
+              if (!is.numeric(gradientMidpoint)) {
+                  memo <- paste("Gradient midpoint value is not numeric, attempting to coerce...")
+                  message(memo)
+              }
+              sapply(gradientColors, function(x) {
+                  if (!is.character(x)) {
+                      memo <- paste("Gradient colors for LOH spectrum figure is not a character vector, 
+                                    attempting to coerce...")
+                      message(memo)
+                  }
+                  hexColor <- (grepl("^#(\\d|[a-f]){6,8}$", x))
+                  if (hexColor == FALSE) {
+                      memo <- paste("Specified colors in the gradient are not hexadecimal.")
+                      message(memo)
+                  }
+              })
+              if(!is.null(plotBLayers)){
+                  if(!is.list(plotBLayers)){
+                      memo <- paste("plotBLayers is not a list")
+                      stop(memo)
+                  }
+                  
+                  if(any(!unlist(lapply(plotBLayers, function(x) ggplot2::is.ggproto(x) | ggplot2::is.theme(x) | is(x, "labels"))))){
+                      memo <- paste("plotBLayers is not a list of ggproto or ",
+                                    "theme objects... setting plotBLayers to NULL")
+                      warning(memo)
+                      plotBLayers <- NULL
+                  }
+              }
+              
+              x <- object@windowCalcData
+              x <- x[loh_step_avg >= 0]
+              x$start <- as.numeric(x$start)
+              x$stop <- as.numeric(x$stop)
+              x$loh_step_avg <- as.numeric(x$loh_step_avg)
+              
+              ## Set the order of the chromosomes
+              chr <- gtools::mixedsort(as.character((unique(x$chromosome))))
+              sample <- gtools::mixedsort(as.character((unique(x$sample))))
+              x$chromosome_f <- factor(x$chromosome, levels=chr)
+              x$sample <- factor(x$sample, levels=sample, labels=sample)
+              
+              # Define the main plot
+              data <- geom_rect(data=x, aes_string(xmin='start',
+                                                   xmax='stop',
+                                                   ymin=-1,
+                                                   ymax=1, fill='loh_step_avg'))
+              
+              # Define additional plot parameters
+              facet <- facet_grid(sample ~ chromosome_f, scales="free_x", space="fixed")
+              
+              x_scale <- scale_x_continuous(expand = c(0, 0))
+              y_scale <- scale_y_continuous(expand = c(0,0))
+              
+              lab_x <- xlab("Chromosome")
+              lab_y <- ylab("Sample")
+              
+              # Define plot aesthetics
+              BWscheme <- theme_bw()
+              plotTheme <- theme(axis.ticks.x=element_blank(),
+                                 axis.text.x=element_blank(),
+                                 axis.ticks.y=element_blank(),
+                                 axis.text.y=element_blank(),
+                                 panel.grid.major=element_blank(),
+                                 panel.grid.minor=element_blank())
+              
+              # plot an additional layer if specified
+              if(!is.null(plotBLayers))
+              {
+                  plotLayer <- plotBLayers
+              } else {
+                  plotLayer <- geom_blank()
+              }
+              
+              LOHgradient <- scale_fill_gradient2(midpoint = gradientMidpoint,
+                                                  guide="colourbar",
+                                                  high=gradientColors[3],
+                                                  mid=gradientColors[2],
+                                                  low=gradientColors[1],
+                                                  space='Lab')
+              
+              # Build the plot
+              tmp <- data.frame(x=0, y=0)
+              p1 <- ggplot(data=tmp, aes(y=0)) +
+                  data + facet + x_scale + y_scale + 
+                  lab_x + lab_y + BWscheme + LOHgradient + plotTheme + plotLayer
+              print(p1)
+              
+              ## Convert to grob
+              lohSpecGrob <- ggplotGrob(p1)
+              return(lohSpecGrob)
+          })
+
+#########################################################
+##### Function to arrange lohSpec and lohFreq plots #####
+#' @rdname arrangeLohPlots-methods
+#' @param object of class lohData
+#' @aliases arrangeLohPlots
+setMethod(f="arrangeLohPlots",
+          signature="lohSpecPlots",
+          definition=function(object, sectionHeights, verbose, ...) {
+              
+              ## Print status message
+              if (verbose) {
+                  message("Combining LOH frequency/proportion and LOH spectrum plot")
+              }
+              
+              
+              ## Perform quality checkes on input parameters
+              if (!is.numeric(sectionHeights)) {
+                  memo <- paste("Values specified for the section heights are 
+                                not numeric, attempting to coerce...")
+                  message(memo)
+              }
+              if (length(sectionHeights) != 2) {
+                  memo <- paste("Heights for both LOH figures are not specified. The sectionHegihts
+                          variable should be a numeric vector of legth 2 specifying the heights of each of the 
+                          2 LOH figures.")
+                  message(memo)
+                  stop()
+              } 
+
+              ## Grab the data we need
+              plotA <- object@PlotA
+              plotB <- object@PlotB
+              
+              ## obtain the meax width for relevant plots
+              plotList <- list(plotA, plotB)
+              plotList <- plotList[lapply(plotList, length) > 0]
+              plotWidths <- lapply(plotList, function(x) x$widths)
+              maxWidth <- do.call(grid::unit.pmax, plotWidths)
+              
+              ## Set the widths for all plots
+              for (i in 1:length(plotList)) {
+                  plotList[[i]]$widths <- maxWidth
+              }
+              
+              ## Set section heights based upon the number of sections
+              defaultPlotHeights <- c(0.25, 0.75)
+              
+              if(is.null(sectionHeights)){
+                  if(length(plotList) < 3){
+                      defaultPlotHeights <- defaultPlotHeights[-length(defaultPlotHeights)]
+                  }
+                  sectionHeights <- defaultPlotHeights
+              } else if(length(sectionHeights) != length(plotList)){
+                  memo <- paste("There are", length(sectionHeights), "section heights provided",
+                                "but", length(plotList), "vertical sections...",
+                                "using default values!")
+                  warning(memo)
+                  sectionHeights <- defaultPlotHeights
+              } else if(!all(is.numeric(sectionHeights))) {
+                  memo <- paste("sectionHeights must be numeric... Using",
+                                "default values!")
+                  warning(memo)
+                  sectionHeights <- defaultPlotHeights
+              }
+              
+              ## Arrange the final plot
+              finalPlot <- do.call(gridExtra::arrangeGrob, c(plotList, list(ncol=1, heights=sectionHeights)))
+              plot(finalPlot)
+              return(finalPlot)
+          })

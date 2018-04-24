@@ -332,15 +332,18 @@ setGeneric(
     def=function(object, ...){standardGeneric("drawPlot")}
 )
 
-#' Method parseDescription
+#' Method drawSvPlot
 #' 
-#' @name parseDescription
-#' @rdname parseDescription-methods
+#' @name drawSvPlot
+#' @rdname drawSvPlot-methods
+#' @param object Object of class Structural Variant
 #' @param ... additional arguments to passed
-#' @noRd
+#' @details The drawSvPlot method is used to draw plots created by GenVisR plot 
+#' constructor functions.
+#' @exportMethod drawSvPlot
 setGeneric(
-    name="parseDescription",
-    def=function(object, ...){standardGeneric("parseDescription")}
+    name="drawSvPlot",
+    def=function(object, chr1, chr2, ...){standardGeneric("drawSvPlot")}
 )
 
 #' Method parseHeader
@@ -352,6 +355,17 @@ setGeneric(
 setGeneric(
     name="parseHeader",
     def=function(object, ...){standardGeneric("parseHeader")}
+)
+
+#' Method parseDescription
+#' 
+#' @name parseDescription
+#' @rdname parseDescription-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="parseDescription",
+    def=function(object, ...){standardGeneric("parseDescription")}
 )
 
 #' Method parseExtra
@@ -506,6 +520,44 @@ setGeneric(
     def=function(object, ...){standardGeneric("getHeader")}
 )
 
+################################################################################
+##### Functions used for lohSpec ###############################################
+################################################################################
+#' Method getVarScan
+#' 
+#' @name getVarScan
+#' @rdname getVarScan-methods
+#' @param object Object of class VarScanFormat
+#' @param ... additional arguments to passed
+#' @exportMethod getVarScan
+setGeneric(
+    name="getVarScan",
+    def=function(object, ...){standardGeneric("getVarScan")}
+)
+
+#' Method getLohData
+#' 
+#' @name getLohData
+#' @rdname getLohData-methods
+#' @param object Object of class VarScanFormat
+#' @param ... additional arguments to passed
+#' @exportMethod getLohData
+setGeneric(
+    name="getLohData",
+    def=function(object, ...){standardGeneric("getLohData")}
+)
+
+#' Method lohSpec_qual
+#' 
+#' @name lohSpec_qual
+#' @rdname lohSpec_qual-methods
+#' @param object Object of class VarScanFormat
+#' @param ... additional arguments to passed
+setGeneric(
+    name="lohSpec_qual",
+    def=function(object, ...){standardGeneric("lohSpec_qual")}
+)
+
 #' Method toRainfall
 #'
 #' @name toRainfall
@@ -543,6 +595,7 @@ setGeneric(
 #'
 #' @name annoGenomeCoord
 #' @rdname annoGenomeCoord-methods
+#' @param object object of class data.table
 #' @param ... additional arguments to passed
 #' @noRd
 setGeneric(
@@ -550,15 +603,139 @@ setGeneric(
     def=function(object, ...){standardGeneric("annoGenomeCoord")}
 )
 
+#' Method annoGenomeCoordSv
+#'
+#' @name annoGenomeCoordSv
+#' @rdname annoGenomeCoordSv-methods
+#' @param object object of class data.table
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="annoGenomeCoordSv",
+    def=function(object, ...){standardGeneric("annoGenomeCoordSv")}
+)
+
+#' Method getLohSlidingWindow
+#' 
+#' @name getLohSlidingWindow
+#' @rdname getLohSlidingWindow-methods
+#' @param object Object of class VarScanFormat
+#' @param ... additional arguments to passed
+setGeneric(
+    name="getLohSlidingWindow",
+    def=function(object, ...){standardGeneric("getLohSlidingWindow")}
+)
+
+#' Method getLohCalculation
+#' 
+#' @name getLohCalculation
+#' @rdname getLohCalculation-methods
+#' @param object Object of class VarScanFormat
+#' @param ... additional arguments to passed
+setGeneric(
+    name="getLohCalculation",
+    def=function(object, ...){standardGeneric("getLohCalculation")}
+)
+
+#' Method getLohStepCalculation
+#' 
+#' @name getLohStepCalculation
+#' @rdname getLohStepCalculation-methods
+#' @param object Object of class VarScanFormat
+#' @param ... additional arguments to passed
+setGeneric(
+    name="getLohStepCalculation",
+    def=function(object, ...){standardGeneric("getLohStepCalculation")}
+)
+
+#' Method getLohSegmentation
+#' 
+#' @name getLohSegmentation
+#' @rdname getLohSegmentation-methods
+#' @param object Object of class VarScanFormat
+#' @param ... additional arguments to passed
+setGeneric(
+    name="getLohSegmentation",
+    def=function(object, ...){standardGeneric("getLohSegmentation")}
+)
+
+#' Method getLohFreq
+#' 
+#' @name getLohFreq
+#' @rdname getLohFreq-methods
+#' @param object Object of class VarScanFormat
+#' @param ... additional arguments to passed
+setGeneric(
+    name="getLohFreq",
+    def=function(object, ...){standardGeneric("getLohFreq")}
+)
+
+#' Method buildLohFreq
+#' 
+#' @name buildLohFreq
+#' @rdname buildLohFreq-methods
+#' @param object Object of class VarScanFormat
+#' @param ... additional arguments to passed
+setGeneric(
+    name="buildLohFreq",
+    def=function(object, ...){standardGeneric("buildLohFreq")}
+)
+
+#' Method lohSpec_buildMainPlot
+#' 
+#' @name lohSpec_buildMainPlot
+#' @rdname lohSpec_buildMainPlot-methods
+#' @param object Object of class VarScanFormat
+#' @param ... additional arguments to passed
+setGeneric(
+    name="lohSpec_buildMainPlot",
+    def=function(object, ...){standardGeneric("lohSpec_buildMainPlot")}
+)
+
+#' Method arrangeLohPlots
+#' 
+#' @name arrangeLohPlots
+#' @rdname arrangeLohPlots-methods
+#' @param object Object of class VarScanFormat
+#' @param ... additional arguments to passed
+setGeneric(
+    name="arrangeLohPlots",
+    def=function(object, ...){standardGeneric("arrangeLohPlots")}
+)
+
 #' Method chrSubset
 #'
 #' @name chrSubset
 #' @rdname chrSubset-methods
+#' @param object object of class data.table
 #' @param ... additional arguments to passed
 #' @noRd
 setGeneric(
     name="chrSubset",
     def=function(object, ...){standardGeneric("chrSubset")}
+)
+
+#' Method chrSubsetSv
+#'
+#' @name chrSubsetSv
+#' @rdname chrSubsetSv-methods
+#' @param object object of class data.table
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="chrSubsetSv",
+    def=function(object, ...){standardGeneric("chrSubsetSv")}
+)
+
+#' Method sampleSubset
+#'
+#' @name sampleSubset
+#' @rdname sampleSubset-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="sampleSubset",
+    def=function(object, ...){standardGeneric("sampleSubset")}
 )
 
 #' Method highlightSampleData
@@ -583,3 +760,200 @@ setGeneric(
     def=function(object, ...){standardGeneric("buildRainfallPlot")}
 )
 
+#' Method buildDensityPlot
+#'
+#' @name buildDensityPlot
+#' @rdname buildDensityPlot-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="buildDensityPlot",
+    def=function(object, ...){standardGeneric("buildDensityPlot")}
+)
+
+#' Method arrangeRainfallPlot
+#'
+#' @name arrangeRainfallPlot
+#' @rdname arrangeRainfallPlot-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="arrangeRainfallPlot",
+    def=function(object, ...){standardGeneric("arrangeRainfallPlot")}
+)
+
+#' Method getCnvData
+#' 
+#' @name getCnvData
+#' @rdname getCnvData-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="getCnvData",
+    def=function(object, ...){standardGeneric("getCnvData")}
+)
+
+#' Method getCnSegmentation
+#' 
+#' @name getCnSegmentation
+#' @rdname getCnSegmentation-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="getCnSegmentation",
+    def=function(object, ...){standardGeneric("getCnSegmentation")}
+)
+
+#' Method buildCnPlot
+#' 
+#' @name buildCnPlot
+#' @rdname buildCnPlot-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="buildCnPlot",
+    def=function(object, ...){standardGeneric("buildCnPlot")}
+)
+
+#' Method buildSomaticLohPlot
+#' 
+#' @name buildSomaticLohPlot
+#' @rdname buildSomaticLohPlot-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="buildSomaticLohPlot",
+    def=function(object, ...){standardGeneric("buildSomaticLohPlot")}
+)
+
+#' Method buildGermlineLohPlot
+#' 
+#' @name buildGermlineLohPlot
+#' @rdname buildGermlineLohPlot-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="buildGermlineLohPlot",
+    def=function(object, ...){standardGeneric("buildGermlineLohPlot")}
+)
+
+#' Method arrangeCnLohPlots
+#' 
+#' @name arrangeCnLohPlots
+#' @rdname arrangeCnLohPlots-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="arrangeCnLohPlots",
+    def=function(object, ...){standardGeneric("arrangeCnLohPlots")}
+)
+
+#' Method removeGapsSegmentation
+#' 
+#' @name removeGapsSegmentation
+#' @rdname removeGapsSegmentation-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="removeGapsSegmentation",
+    def=function(object, ...){standardGeneric("removeGapsSegmentation")}
+)
+
+#' Method getVcf
+#' 
+#' @name getVcf
+#' @rdname getVcf-methods
+#' @param ... additional arguments to passed
+#' @exportMethod getSample
+setGeneric(
+    name="getVcf",
+    def=function(object, ...){standardGeneric("getVcf")}
+)
+
+#' Method filterStructuralVariant
+#' 
+#' @name filterStructuralVariant
+#' @rdname filterStructuralVariant-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="filterStructuralVariant",
+    def=function(object, ...){standardGeneric("filterStructuralVariant")}
+)
+
+#' Method annotateSV
+#' 
+#' @name annotateSV
+#' @rdname annotateSV-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="annotateSV",
+    def=function(object, ...){standardGeneric("annotateSV")}
+)
+
+#' Method countGenes
+#' 
+#' @name countGenes
+#' @rdname countGenes-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="countGenes",
+    def=function(object, ...){standardGeneric("countGenes")}
+)
+
+#' Method getStructuralVariantWindow
+#' 
+#' @name getStructuralVariantWindow
+#' @rdname getStructuralVariantWindow-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="getStructuralVariantWindow",
+    def=function(object, ...){standardGeneric("getStructuralVariantWindow")}
+)
+
+#' Method buildSvPlot
+#' 
+#' @name buildSvPlot
+#' @rdname buildSvPlot-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="buildSvPlot",
+    def=function(object, ...){standardGeneric("buildSvPlot")}
+)
+
+#' Method svCytobands
+#' 
+#' @name svCytobands
+#' @rdname svCytobands-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="svCytobands",
+    def=function(object, ...){standardGeneric("svCytobands")}
+)
+
+#' Method adjustCentromeres
+#' 
+#' @name adjustCentromeres
+#' @rdname adjustCentromeres-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="adjustCentromeres",
+    def=function(object, ...){standardGeneric("adjustCentromeres")}
+)
+
+#' Method extractVariantCallFormat
+#' 
+#' @name extractVariantCallFormat
+#' @rdname extractVariantCallFormat-methods
+#' @param ... additional arguments to passed
+#' @noRd
+setGeneric(
+    name="extractVariantCallFormat",
+    def=function(object, ...){standardGeneric("extractVariantCallFormat")}
+)
